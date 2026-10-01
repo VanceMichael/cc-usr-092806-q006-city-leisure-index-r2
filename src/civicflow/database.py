@@ -124,6 +124,148 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
     last_error TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS jobs_due ON scheduled_jobs(status, run_at, lease_until);
+
+-- 城市休闲化指数复核：城市、合作机构授权与统计期
+CREATE TABLE IF NOT EXISTS leisure_cities (
+    city_id TEXT PRIMARY KEY,
+    code TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS leisure_city_grants (
+    org_id TEXT NOT NULL,
+    city_id TEXT NOT NULL,
+    granted_by TEXT NOT NULL,
+    granted_at TEXT NOT NULL,
+    PRIMARY KEY(org_id, city_id)
+);
+CREATE TABLE IF NOT EXISTS leisure_periods (
+    period_id TEXT PRIMARY KEY,
+    year INTEGER NOT NULL UNIQUE,
+    label TEXT NOT NULL,
+    coverage_start TEXT NOT NULL,
+    coverage_end TEXT NOT NULL,
+    state TEXT NOT NULL,
+    closed_by TEXT,
+    closed_at TEXT
+);
+-- 报送批次：同一批次编号返回既有结果；编号相同内容不一致时记冲突且不入库
+CREATE TABLE IF NOT EXISTS leisure_batches (
+    batch_id TEXT PRIMARY KEY,
+    period_id TEXT NOT NULL,
+    city_id TEXT NOT NULL,
+    payload_digest TEXT NOT NULL,
+    status TEXT NOT NULL,
+    result_json TEXT NOT NULL DEFAULT '{}',
+    recorded_by TEXT NOT NULL,
+    received_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS leisure_batch_conflicts (
+    conflict_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id TEXT NOT NULL,
+    existing_digest TEXT NOT NULL,
+    incoming_digest TEXT NOT NULL,
+    received_at TEXT NOT NULL
+);
+-- 按城市、统计期、指标保存的观测数据（人口基准/休闲资源/覆盖/密度输入与样本出处），带版本
+CREATE TABLE IF NOT EXISTS leisure_obs (
+    city_id TEXT NOT NULL,
+    period_id TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    current_version INTEGER NOT NULL,
+    value REAL NOT NULL,
+    unit TEXT NOT NULL,
+    batch_id TEXT NOT NULL,
+    recorded_by TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY(city_id, period_id, metric)
+);
+CREATE TABLE IF NOT EXISTS leisure_obs_versions (
+    city_id TEXT NOT NULL,
+    period_id TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    value REAL NOT NULL,
+    unit TEXT NOT NULL,
+    source_ref TEXT NOT NULL,
+    source_detail TEXT NOT NULL,
+    batch_id TEXT NOT NULL,
+    recorded_by TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    PRIMARY KEY(city_id, period_id, metric, version)
+);
+-- 指标权重按统计期版本化
+CREATE TABLE IF NOT EXISTS leisure_weights (
+    period_id TEXT NOT NULL,
+    dimension TEXT NOT NULL,
+    weight REAL NOT NULL,
+    version INTEGER NOT NULL,
+    adjustment_id TEXT,
+    changed_by TEXT NOT NULL,
+    changed_at TEXT NOT NULL,
+    PRIMARY KEY(period_id, dimension)
+);
+-- 换算或权重调整：提出需说明原因，经另一名成员确认后才影响待发布结果
+CREATE TABLE IF NOT EXISTS leisure_adjustments (
+    adjustment_id TEXT PRIMARY KEY,
+    period_id TEXT NOT NULL,
+    city_id TEXT,
+    kind TEXT NOT NULL,
+    target TEXT NOT NULL,
+    from_value TEXT NOT NULL,
+    to_value TEXT NOT NULL,
+    factor REAL,
+    reason TEXT NOT NULL,
+    state TEXT NOT NULL,
+    proposed_by TEXT NOT NULL,
+    proposed_at TEXT NOT NULL,
+    confirmed_by TEXT,
+    confirmed_at TEXT
+);
+-- 每次计算固定单位、覆盖期和分母版本
+CREATE TABLE IF NOT EXISTS leisure_computations (
+    computation_id TEXT PRIMARY KEY,
+    period_id TEXT NOT NULL,
+    city_id TEXT NOT NULL,
+    scope_dimensions TEXT NOT NULL,
+    trigger TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    parent_computation_id TEXT,
+    status TEXT NOT NULL,
+    basis_json TEXT NOT NULL,
+    scores_json TEXT NOT NULL,
+    total REAL NOT NULL,
+    inputs_digest TEXT NOT NULL,
+    computed_by TEXT NOT NULL,
+    computed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS leisure_computation_lookup ON leisure_computations(period_id, city_id, status);
+-- 正式发布的年度榜单（不可变）与带关联关系的勘误版本
+CREATE TABLE IF NOT EXISTS leisure_rankings (
+    ranking_id TEXT PRIMARY KEY,
+    period_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    entries_json TEXT NOT NULL,
+    digest TEXT NOT NULL,
+    published_by TEXT NOT NULL,
+    published_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS leisure_errata (
+    erratum_id TEXT PRIMARY KEY,
+    ranking_id TEXT NOT NULL,
+    period_id TEXT NOT NULL,
+    city_id TEXT NOT NULL,
+    dimension TEXT NOT NULL,
+    before_computation_id TEXT NOT NULL,
+    after_computation_id TEXT NOT NULL,
+    before_value REAL NOT NULL,
+    after_value REAL NOT NULL,
+    change_summary TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    issued_by TEXT NOT NULL,
+    issued_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS leisure_errata_ranking ON leisure_errata(ranking_id);
 """
 
 
